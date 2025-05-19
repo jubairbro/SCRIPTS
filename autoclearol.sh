@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# Variables
+SCRIPT_PATH="/usr/local/bin/clear_logs.sh"
+SERVICE_FILE="/etc/systemd/system/clear_logs.service"
+TIMER_FILE="/etc/systemd/system/clear_logs.timer"
+
+# Create the log cleanup script
+echo "Creating the log cleanup script at $SCRIPT_PATH"
+sudo tee $SCRIPT_PATH > /dev/null <<EOF
+#!/bin/bash
+
+# Remove compressed log files
+sudo rm -rf /var/log/*.gz
+
+# Remove rotated logs
+sudo rm -rf /var/log/*.1
+
+# Truncate large log files that are still in use
+sudo truncate -s 0 /var/log/*
+
+# Remove regular log files
+sudo rm -rf /var/log/*.log
+
+# Remove rotated log files
+sudo rm -rf /var/log/*.log.*
+
+# Truncate all remaining log files
+sudo find /var/log/ -type f -exec truncate -s 0 {} +
+
+# Additional cleanup commands
+sudo rm -rf /tmp/*
+sudo rm -rf /var/tmp/*
+sudo journalctl --vacuum-time=1d
+sudo apt-get clean
+sudo rm -rf /var/cache/apt/archives/*
+
+echo "Log files cleanup completed."
+EOF
+
+# Make the script executable
+echo "Making the script executable"
+sudo chmod +x $SCRIPT_PATH
+
+# Create the systemd service file
+echo "Creating the systemd service file at $SERVICE_FILE"
+sudo tee $SERVICE_FILE > /dev/null <<EOF
+[Unit]
+Description=Clear log files
+
+[Service]
+Type=oneshot
+ExecStart=$SCRIPT_PATH
+EOF
+
+# Create the systemd timer file
+echo "Creating the systemd timer file at $TIMER_FILE"
+sudo tee $TIMER_FILE > /dev/null <<EOF
+[Unit]
+Description=Run clear_logs script every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Reload the systemd daemon to recognize the new service and timer
+echo "Reloading systemd daemon"
+sudo systemctl daemon-reload
+
+# Enable and start the timer
+echo "Enabling and starting the timer"
+sudo systemctl enable clear_logs.timer
+sudo systemctl start clear_logs.timer
+
+echo "Setup completed. Log cleanup will run every 10 minutes."
